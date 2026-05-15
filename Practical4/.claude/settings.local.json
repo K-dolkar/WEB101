@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo -u postgres psql -c '\\\\l')",
+      "Bash(npm install *)",
+      "Bash(curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh)",
+      "Bash(bash)",
+      "Bash(psql -h 127.0.0.1 -U postgres -c '\\\\l')",
+      "Bash(sleep 3 && cat /tmp/server.log)",
+      "Read(//tmp/**)",
+      "Bash(lsof -ti:8000)",
+      "Bash(xargs kill -9)",
+      "Bash(fuser 8000/tcp)",
+      "Bash(kill 196518 196519 196297 197221 197222)",
+      "Read(//proc/183408/net/**)",
+      "Bash(awk '$2 ~ /1F40/ {print $2, $7}')",
+      "Bash(curl -s http://localhost:8001/api/videos)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}
