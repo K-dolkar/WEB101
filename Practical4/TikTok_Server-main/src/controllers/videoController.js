@@ -1,10 +1,4 @@
 const prisma = require('../lib/prisma');
-const fs = require('fs');
-const path = require('path');
-
-const uploadsDir = path.join(__dirname, '../uploads');
-const getLocalUrl = (filename) =>
-  `http://localhost:${process.env.PORT || 8001}/uploads/${filename}`;
 
 // Get all videos
 exports.getAllVideos = async (req, res) => {
@@ -170,33 +164,72 @@ exports.getVideoById = async (req, res) => {
 
 exports.getUserVideos = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const userExists = await prisma.user.findUnique({ where: { id: parseInt(id) } });
-    if (!userExists) return res.status(404).json({ message: 'User not found' });
-
-    const videos = await prisma.video.findMany({
-      where: { userId: parseInt(id) },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: { select: { id: true, username: true, name: true, avatar: true } },
-        _count: { select: { comments: true, likes: true } },
-      },
-    });
-
-    const formattedVideos = videos.map(video => ({
-      ...video,
-      likeCount: video._count.likes,
-      commentCount: video._count.comments,
-      _count: undefined,
-    }));
-
-    res.status(200).json({ videos: formattedVideos, totalVideos: videos.length });
+    // Remove the query params - just get all videos for the user
+    const response = await apiClient.get(`/users/${userId}/videos`);
+    return response.data;
   } catch (error) {
-    console.error(`Error getting videos for user ${req.params.id}:`, error);
-    res.status(500).json({ message: 'Server error' });
+    console.error(`Error fetching videos for user ${userId}:`, error);
+    throw error;
   }
 };
+
+// Get videos by user
+// exports.getUserVideos = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+    
+//     // Check if user exists
+//     const userExists = await prisma.user.findUnique({
+//       where: { id: parseInt(id) },
+//     });
+    
+//     if (!userExists) {
+//       return res.status(404).json({ message: 'User not found' });
+//     }
+    
+//     // Get user's videos
+//     const videos = await prisma.video.findMany({
+//       where: {
+//         userId: parseInt(id),
+//       },
+//       orderBy: {
+//         createdAt: 'desc',
+//       },
+//       include: {
+//         user: {
+//           select: {
+//             id: true,
+//             username: true,
+//             name: true,
+//             avatar: true,
+//           },
+//         },
+//         _count: {
+//           select: {
+//             comments: true,
+//             likes: true,
+//           },
+//         },
+//       },
+//     });
+    
+//     // Format videos with count data
+//     const formattedVideos = videos.map(video => ({
+//       ...video,
+//       likeCount: video._count.likes,
+//       commentCount: video._count.comments,
+//       _count: undefined,
+//     }));
+    
+//     res.status(200).json({
+//       videos: formattedVideos,
+//       totalVideos: videos.length
+//     });
+//   } catch (error) {
+//     console.error(`Error getting videos for user ${req.params.id}:`, error);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// };
 
 // Get videos for following feed
 exports.getFollowingVideos = async (req, res) => {
@@ -300,21 +333,55 @@ exports.getFollowingVideos = async (req, res) => {
   }
 };
 
+// Create video with Supabase storage
 exports.createVideo = async (req, res) => {
   try {
     const { caption, audioName } = req.body;
     const userId = req.user.id;
-
+    
+    // Check if files exist
     if (!req.files || !req.files.video) {
       return res.status(400).json({ message: 'Video file is required' });
     }
-
+    
     const videoFile = req.files.video[0];
     const thumbnailFile = req.files.thumbnail ? req.files.thumbnail[0] : null;
-
-    const videoUrl = getLocalUrl(videoFile.filename);
-    const thumbnailUrl = thumbnailFile ? getLocalUrl(thumbnailFile.filename) : null;
-
+    
+    // Generate unique file names for storage
+    const videoFileName = storageService.generateUniqueFileName(videoFile.originalname);
+    const videoPath = `user-${userId}/${videoFileName}`;
+    
+    let thumbnailPath = null;
+    
+    // Upload video to Supabase
+    const { fileUrl: videoUrl } = await storageService.uploadFile(
+      'videos',
+      videoPath,
+      fs.readFileSync(videoFile.path)
+    );
+    
+    // Upload thumbnail if it exists
+    let thumbnailUrl = null;
+    if (thumbnailFile) {
+      const thumbnailFileName = storageService.generateUniqueFileName(thumbnailFile.originalname);
+      thumbnailPath = `user-${userId}/${thumbnailFileName}`;
+      
+      const { fileUrl } = await storageService.uploadFile(
+        'thumbnails',
+        thumbnailPath,
+        fs.readFileSync(thumbnailFile.path)
+      );
+      
+      thumbnailUrl = fileUrl;
+    }
+    
+    // Clean up local files after uploading to Supabase
+    fs.unlinkSync(videoFile.path);
+    if (thumbnailFile) {
+      fs.unlinkSync(thumbnailFile.path);
+    }
+    
+    // Create video record in database
     const newVideo = await prisma.video.create({
       data: {
         userId: parseInt(userId),
@@ -322,14 +389,22 @@ exports.createVideo = async (req, res) => {
         audioName,
         videoUrl,
         thumbnailUrl,
-        videoStoragePath: videoFile.filename,
-        thumbnailStoragePath: thumbnailFile ? thumbnailFile.filename : null,
+        // Store reference to file paths in Supabase for potential deletion later
+        videoStoragePath: videoPath,
+        thumbnailStoragePath: thumbnailPath
       },
       include: {
-        user: { select: { id: true, username: true, name: true, avatar: true } }
+        user: {
+          select: {
+            id: true,
+            username: true,
+            name: true,
+            avatar: true
+          }
+        }
       }
     });
-
+    
     res.status(201).json(newVideo);
   } catch (error) {
     console.error('Error creating video:', error);
@@ -384,26 +459,39 @@ exports.updateVideo = async (req, res) => {
   }
 };
 
+// Delete video with Supabase storage cleanup
 exports.deleteVideo = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
-
-    const video = await prisma.video.findUnique({ where: { id: parseInt(id) } });
-
-    if (!video) return res.status(404).json({ message: 'Video not found' });
-    if (video.userId !== parseInt(userId)) return res.status(403).json({ message: 'Not authorized to delete this video' });
-
+    
+    // Check if video exists and belongs to user
+    const video = await prisma.video.findUnique({
+      where: { id: parseInt(id) }
+    });
+    
+    if (!video) {
+      return res.status(404).json({ message: 'Video not found' });
+    }
+    
+    if (video.userId !== parseInt(userId)) {
+      return res.status(403).json({ message: 'Not authorized to delete this video' });
+    }
+    
+    // Delete files from Supabase Storage
     if (video.videoStoragePath) {
-      const filePath = path.join(uploadsDir, video.videoStoragePath);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      await storageService.removeFile('videos', video.videoStoragePath);
     }
+    
     if (video.thumbnailStoragePath) {
-      const filePath = path.join(uploadsDir, video.thumbnailStoragePath);
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      await storageService.removeFile('thumbnails', video.thumbnailStoragePath);
     }
-
-    await prisma.video.delete({ where: { id: parseInt(id) } });
+    
+    // Delete video from database
+    await prisma.video.delete({
+      where: { id: parseInt(id) }
+    });
+    
     res.status(200).json({ message: 'Video deleted successfully' });
   } catch (error) {
     console.error(`Error deleting video ${req.params.id}:`, error);
