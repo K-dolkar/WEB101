@@ -1,136 +1,182 @@
-# Practical 5: Infinite Scroll with TanStack Query
+# Practical 5: Implementing Infinite Scroll with TanStack Query
 
 ## Overview
-This practical demonstrates how to implement infinite scrolling in a TikTok-style application using TanStack Query (React Query) with cursor-based pagination. The project improves user experience by loading content continuously as the user scrolls.
+Implement infinite scrolling functionality in the TikTok application using TanStack Query (formerly React Query) with cursor-based pagination. This provides a smooth, endless scrolling experience similar to the real TikTok platform.
 
-The practical includes both backend and frontend implementation:
-- Backend support for cursor-based pagination
-- Frontend infinite scrolling using `useInfiniteQuery`
-- Intersection Observer API for detecting scroll position
+## Key Concepts
 
----
+### Cursor-Based Pagination vs. Offset-Based Pagination
 
-## Objectives
-- Understand cursor-based pagination
-- Implement infinite scrolling functionality
-- Use TanStack Query for data fetching and caching
-- Learn how the Intersection Observer API works
-- Improve application performance and user experience
+**Offset-Based Pagination:**
+- Uses `page` and `limit` parameters (e.g., "give me page 3 with 10 items per page")
+- Simple to implement but has limitations with large datasets
+- Can lead to issues when items are added or removed during pagination
 
----
+**Cursor-Based Pagination:**
+- Uses a unique identifier (cursor) as a reference point (e.g., "give me 10 items after item with ID 1234")
+- More efficient for large datasets
+- Provides consistent results even when data changes
+- Better suited for infinite scroll interfaces
 
-## Technologies Used
-- Node.js
-- Express.js
-- Next.js
-- TanStack Query (React Query)
-- Prisma ORM
-- Intersection Observer API
+**Why Cursor-Based for Our App:**
+- Smoother user experience
+- Handles new content being added correctly
+- More efficient when dealing with thousands of videos
 
----
+### Technologies Used
 
-## Installation
+**TanStack Query (React Query)**
+- Automatically manages pagination state
+- Handles loading and error states
+- Provides `useInfiniteQuery` hook for infinite scrolling
+- Maintains a cache of fetched data
 
-### Backend Dependencies
+**Intersection Observer API**
+- Efficiently detects when elements enter/exit the viewport
+- More performant than scroll event listeners
+- Provides clean way to trigger loading more content
+
+## Implementation Steps
+
+### Part 1: Backend Implementation
+
+#### Step 1: Update Video Controller (`src/controllers/videoController.js`)
+Modify the `getAllVideos` function to support cursor-based pagination:
+- Change query parameters from `page` and `limit` to `cursor` and `limit`
+- Use Prisma's `cursor` and `skip` for efficient pagination
+- Implement the "n+1 pattern" to determine if more items exist
+- Return response with `nextCursor` and `hasNextPage` instead of page numbers
+
+#### Step 2: Update Following Videos Controller (`src/controllers/videoController.js`)
+Similarly, update the `getFollowingVideos` function to use cursor-based pagination with the same approach
+
+### Part 2: Frontend Implementation
+
+#### Step 1: Install Dependencies
 ```bash
-npm install
-
-## Frontend Dependencies 
 npm install @tanstack/react-query @tanstack/react-query-devtools
+```
 
-## Backend Implementation
-- Step 1: Update Video Controller
+#### Step 2: Set Up Query Client Provider
+Update `src/app/layout.js` to wrap the application with `QueryClientProvider`:
+- Initialize a QueryClient instance
+- Wrap the component tree with QueryClientProvider
+- Include ReactQueryDevtools for development
 
-- Modified the getAllVideos function in:
+#### Step 3: Update Video Service (`src/services/videoService.js`)
+Modify the video service to support cursor-based pagination:
+- Update `getAllVideos()` to accept cursor and limit parameters
+- Update `getFollowingVideos()` for cursor-based pagination
+- Return data with `nextCursor` and `hasNextPage` properties
 
-src/controllers/videoController.js
+#### Step 4: Create Intersection Observer Hook (`src/hooks/useIntersectionObserver.js`)
+Create a custom hook that:
+- Detects when an element enters the viewport
+- Takes a callback function to execute when triggered
+- Cleans up observers on unmount
+- Works with Next.js SSR
 
-# Changes made:
+#### Step 5: Update VideoFeed Component (`src/components/ui/VideoFeed.jsx`)
+Implement infinite scroll in the VideoFeed component:
+- Replace `useQuery` with `useInfiniteQuery`
+- Use the Intersection Observer hook to detect bottom of feed
+- Call `fetchNextPage()` when user scrolls to bottom
+- Render loading state while fetching more videos
+- Handle error states gracefully
+- Flatten and display all pages of videos
 
-- Replaced page-based pagination with cursor-based pagination
-- Added cursor and limit query parameters
-- Returned nextCursor and hasNextPage
-- Step 2: Update Following Videos Controller
+## Key Implementation Differences
 
-# Updated the getFollowingVideos controller to also support:
+### Backend Changes
+1. **Query Parameters:** `cursor` and `limit` instead of `page` and `limit`
+2. **Response Format:** Includes `nextCursor` and `hasNextPage` instead of page numbers
+3. **Database Queries:** Use Prisma's cursor and skip for efficient pagination
+4. **Extra Item Pattern:** Fetch n+1 items to determine if more exist
 
-- Cursor-based pagination
-- Efficient database querying
-- Dynamic loading of content
-- Frontend Implementation
-- Step 1: Configure Query Client
+### Frontend Changes
+1. **React Query Hook:** Use `useInfiniteQuery` instead of `useQuery`
+2. **Intersection Observer:** Detect when user reaches bottom of feed
+3. **Cursor Management:** Handle cursor-based navigation instead of page numbers
+4. **Data Flattening:** Combine multiple pages into a single list for display
 
-Updated:
+## Project Structure
 
-src/app/layout.js
+```
+TikTok_Frontend-main/
+├── src/
+│   ├── app/
+│   │   ├── layout.js (Add QueryClientProvider)
+│   │   └── ...
+│   ├── components/
+│   │   └── ui/
+│   │       └── VideoFeed.jsx (Implement infinite scroll)
+│   ├── hooks/
+│   │   └── useIntersectionObserver.js (Create)
+│   └── services/
+│       └── videoService.js (Update for cursor pagination)
+└── ...
 
-Added:
+TikTok_Server-main/
+├── src/
+│   ├── controllers/
+│   │   └── videoController.js (Update for cursor pagination)
+│   └── ...
+└── ...
+```
 
-- QueryClient
-- QueryClientProvider
+## Setup & Running
 
-# Step 2: Update Video Service
+### Backend
+```bash
+cd TikTok_Server-main
+npm install
+npm run dev
+```
 
-Updated:
+### Frontend
+```bash
+cd TikTok_Frontend-main
+npm install
+npm run dev
+```
 
-src/services/videoService.js
+Visit `http://localhost:3000` to see the infinite scroll in action.
 
-Changes:
+## Resources
 
-- Added support for cursor-based API requests
-- Managed nextCursor handling
-- Step 3: Create Intersection Observer Hook
+- [TanStack Query Documentation](https://tanstack.com/query/latest)
+- [useInfiniteQuery Guide](https://tanstack.com/query/latest/docs/react/guides/infinite-queries)
+- [Intersection Observer API](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API)
+- [Prisma Cursor-Based Pagination](https://www.prisma.io/docs/orm/prisma-client/queries/pagination#cursor-based-pagination)
+- [Next.js App Router Documentation](https://nextjs.org/docs/app)
 
-Created:
+## Testing Checklist
 
-src/hooks/useIntersectionObserver.js
+- [ ] Backend returns cursor and hasNextPage correctly
+- [ ] Frontend loads initial videos on page load
+- [ ] Scrolling to bottom triggers loading more videos
+- [ ] Loading indicator appears while fetching
+- [ ] Videos load smoothly without duplicates
+- [ ] Errors are handled gracefully
+- [ ] DevTools show query cache being managed correctly
 
-Purpose:
+## Common Issues & Solutions
 
-- Detect when the user reaches the bottom of the feed
-- Trigger loading of more videos automatically
-- Step 4: Update VideoFeed Component
+**Prisma Client Not Initialized:**
+```bash
+npx prisma generate
+```
 
-Updated:
+**Missing Dependencies:**
+```bash
+npm install @tanstack/react-query @tanstack/react-query-devtools
+```
 
-src/components/ui/VideoFeed.jsx
+**Cursor Not Updating:**
+- Ensure backend returns `nextCursor` correctly
+- Verify Intersection Observer is detecting bottom element
+- Check that `fetchNextPage()` is being called
 
-Implemented:
+---
 
-- useInfiniteQuery
-- Infinite scrolling logic
-- Automatic fetching of additional videos
-- Key Concepts Learned
-- Cursor-Based Pagination
-
-- Cursor-based pagination uses a unique identifier instead of page numbers. It is:
-
-- Faster for large datasets
-- More reliable when data changes
-- Better suited for infinite scrolling applications
-- TanStack Query
-
-# TanStack Query helps with:
-
-- Data fetching
-- Caching
-- Managing loading and error states
-- Infinite queries using useInfiniteQuery
-- Intersection Observer API
-
-- This API detects when elements enter the viewport and is more efficient than scroll event listeners.
-
-- Key Differences from Offset-Based Pagination
-- Backend
-- Replaced page with cursor
-- Added nextCursor
-- Used Prisma cursor queries
-- Implemented the n+1 pattern
-- Frontend
-- Replaced useQuery with useInfiniteQuery
-- Added Intersection Observer
-- Managed cursor navigation dynamically
-
-## Outcome
-
-- The infinite scrolling feature was implemented successfully. Videos now load continuously as the user scrolls, providing a smoother and more responsive user experience similar to modern social media applications.
+Created for WEB101 Practical 5 | May 2026
