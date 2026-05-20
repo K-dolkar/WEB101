@@ -180,3 +180,4 @@ npm install @tanstack/react-query @tanstack/react-query-devtools
 ---
 
 Created for WEB101 Practical 5 | May 2026
+![alt text](image/image.png)
